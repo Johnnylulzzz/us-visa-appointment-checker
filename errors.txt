@@ -1,0 +1,69 @@
+1️⃣ HTTP Status Code Errors (Server & Client-Side)
+These errors occur when a request is made to a website but fails due to server or client-side issues.
+
+🔴 Client-Side Errors (4xx)
+Error Code    Name                Explanation
+400           Bad Request         The request was invalid or corrupted. Common causes: malformed URL, missing parameters, or incorrect headers.
+401           Unauthorized        Authentication is required. You need to log in or provide API credentials.
+403           Forbidden           You are not allowed to access this page (blocked by permissions or security settings).
+404           Not Found           The requested page does not exist. It may have been moved or deleted.
+408           Request Timeout     The server took too long to respond. Often caused by slow internet or overloaded servers.
+429           Too Many Requests   The website blocked your access due to excessive requests (common when bots or scrapers send too many requests).
+
+🟠 Server-Side Errors (5xx)
+Error Code    Name                Explanation
+500           Internal Server Error  A generic error indicating something went wrong on the website’s server.
+502           Bad Gateway         The server received an invalid response from another upstream server.
+503           Service Unavailable The website is down for maintenance or overloaded with traffic.
+504           Gateway Timeout     The server didn’t respond in time, often due to high load or slow backend processing.
+
+2️⃣ JavaScript & Browser Errors
+These errors occur when scripts fail to execute properly in the browser.
+
+Error Type            Explanation
+Uncaught TypeError    A function is called on an undefined or null value (e.g., null.click()).
+SyntaxError           There is incorrect JavaScript syntax in the code, causing execution failure.
+ReferenceError        A variable or function is used before it is defined (e.g., console.log(nonExistentVariable)).
+CORS Error            The website blocks cross-origin requests for security reasons.
+Script Timeout        A script took too long to execute, causing it to be stopped by the browser.
+
+3️⃣ CAPTCHA & Bot Protection Errors
+Websites use bot-detection mechanisms to block automated access.
+
+Error Type                        Explanation
+reCAPTCHA Triggered               The website asks you to verify you're human (usually due to unusual browsing patterns).
+Cloudflare "Checking Your Browser" Cloudflare is verifying whether you are a bot before allowing access.
+Access Denied (403 Forbidden)     The website detects automation and blocks further requests.
+
+4️⃣ Form Submission & Authentication Errors
+These errors occur when submitting forms or logging in.
+
+Error Type                Explanation
+Invalid Credentials       The username/password combination is incorrect.
+Session Expired           You were logged out due to inactivity, and you need to log in again.
+Token Expired             Authentication tokens have expired, requiring a refresh.
+Form Validation Failed    Required fields were left blank or contain invalid data.
+
+5️⃣ Network & Connection Errors
+These errors happen due to connection issues between your browser and the website.
+
+Error Type                    Explanation
+DNS_PROBE_FINISHED_NXDOMAIN   The domain name could not be resolved (website doesn't exist or DNS issues).
+ERR_CONNECTION_REFUSED        The website refused the connection (server down or blocking your IP).
+ERR_TIMED_OUT                 The website took too long to respond.
+SSL Certificate Error         The website's SSL certificate is invalid or expired, making it unsafe to browse.
+
+6️⃣ Website-Specific Errors (Custom Messages)
+Some websites display custom errors related to their functionality.
+
+Error Type                    Explanation
+"Slot no longer available"    The appointment slot you selected has been taken by someone else.
+"Too many login attempts"     The website locked your account due to repeated failed login attempts.
+"Unexpected error occurred"   A general error message without specific details.
+
+📌 How to Handle These Errors in Your Bot?
+For HTTP errors (4xx/5xx) → Use try-except to catch errors and retry requests.
+For JavaScript errors → Use Selenium's execute_script() to handle dynamic content.
+For CAPTCHA & bot detection → Introduce human-like delays and use rotating proxies.
+For form submission errors → Check if fields are correctly filled before submitting.
+For session expiration → Detect login pages and re-authenticate automatically.
