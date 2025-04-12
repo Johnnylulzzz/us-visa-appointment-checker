@@ -2,7 +2,7 @@ import io
 
 from selenium import webdriver
 from datetime import datetime, timedelta
-from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, UnexpectedAlertPresentException
 
 import time
 from selenium.webdriver.common.by import By
@@ -25,6 +25,7 @@ import uuid
 
 from PIL import Image
 from openai import OpenAI
+from seleniumbase import Driver
 
 
 """
@@ -57,18 +58,18 @@ EMAIL_PASS = os.getenv("EMAIL_PASS")
 
 
 #Appointment Site
-target_site = "https://www.usvisascheduling.com/en-US/"
+target_site = os.getenv("SITE_URL") 
 
 # User credentials
-user_name = "user" #input("Enter UserName: ").upper()
-user_passwd = "passwd" #input("Enter Password: ")
+user_name = os.getenv("USER_NAME")
+user_passwd = os.getenv("USER_PASS") 
 
 
 
 #Can be replaced as per each application can be turned into user input as well
-secure_ans1 = "example1" 
-secure_ans2 = "example2"
-secure_ans3 = "example3"
+secure_ans1 = os.getenv("SECURE_ANS1") 
+secure_ans2 = os.getenv("SECURE_ANS2") 
+secure_ans3 = os.getenv("SECURE_ANS3") 
 
 #These KBA fields are dynamic and can be changed as per application
 #So if user used different security questions then you gotta check the divs for this and change the fields accordingly
@@ -92,14 +93,14 @@ chennai_vac = "3f6bf614-b0db-ec11-a7b4-001dd80234f6"
 location = newdelhi_vac
 
 today = datetime.today()
-next_30_days = today + timedelta(days=35) #it searches for slot for next 35 days, in current two month panels
+next_30_days = today + timedelta(days=55) #it searches for slot for next 35 days, in current two month panels
 
 
 ##############################
 ### RANDOM DELAY Functions ###
 def random_delay():
     """Introduce a random delay before scanning again."""
-    delay = random.uniform(13, 30)  
+    delay = random.uniform(30, 60)  
     print(f"⏳ Waiting {delay:.2f} seconds before next scan...")
     time.sleep(delay)
 
@@ -116,7 +117,7 @@ def human_typing(element, text):
 def js_click(driver, element):
     driver.execute_script("arguments[0].click();", element)
 
-def little_delay(min_seconds=0.5, max_seconds=2.0):
+def little_delay(min_seconds=0.5, max_seconds=1.0):
     """Random delay to mimic human timing."""
     time.sleep(random.uniform(min_seconds, max_seconds))
 
@@ -243,7 +244,7 @@ def user_login():
             )
             actions.move_to_element(loginConButton).perform()
             human_delay()
-            loginConButton.click()
+            safe_click(driver, loginConButton)
             print("Continue button clicked successfully.")
 
             # Verify login success (wait for security questions to appear)
@@ -294,7 +295,7 @@ def sec_questions():
         )
         actions.move_to_element(continue_button).perform()
         human_delay()
-        continue_button.click()
+        safe_click(driver, continue_button)
         print("Continue button clicked successfully.")
         WebDriverWait(driver, 200).until(
             EC.presence_of_element_located((By.ID, "continue_application"))
@@ -354,274 +355,189 @@ def send_alert(message):
 ######################################################################################################
 ######################################## Slot Checker Function #######################################
 def check_slots():
-
     counter = 0
-    THRESHOLD = 27
+    THRESHOLD = 40
 
-    while True:     
+    while True:
         try:
+            driver.execute_cdp_cmd('Network.clearBrowserCache', {})
             wait = WebDriverWait(driver, 200)
-            
-            # Locate the dropdown and reset selection
+
             dropdown = wait.until(EC.visibility_of_element_located((By.ID, "post_select")))
-            
             actions.move_to_element(dropdown)
-            select_vac = Select(dropdown) 
-            select_vac.select_by_index(0)   #Select the empty <option></option> tag to reset the slots 
+            select_vac = Select(dropdown)
+            select_vac.select_by_index(0)
             print("Resetting dropdown selection.")
             human_delay()
 
-            # Select the correct location, this works with single location or you can set it to work with a loop of locations
             wait.until(lambda d: any(option.get_attribute("value") == location for option in select_vac.options))
             select_vac.select_by_value(location)
-            print(f"Selected {location} successfully.")
-            
-            
-            wait = WebDriverWait(driver, 20)
-            # Wait for the calendar to load (indicating the network request has completed)
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "ui-datepicker-group")))
-            available_slots = []  # Initialize list outside panel loop
+            print(f"Selected location {location} successfully.")
 
-            # Get all visible month panels
+            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "ui-datepicker-group")))
+            available_slots = []
             month_panels = driver.find_elements(By.CLASS_NAME, "ui-datepicker-group")
-            
-            # Collect slots from ALL panels first
             for panel in month_panels:
-                
                 panel_slots = panel.find_elements(By.CLASS_NAME, "greenday")
                 available_slots.extend(panel_slots)
 
-            
-                
-         
-            # Sort slots chronologically
             sorted_slots = []
             for slot in available_slots:
-                day = int(slot.text)
+                try:
+                    day = int(slot.text)
+                except Exception as conv_err:
+                    print(f"Couldn't convert slot text to int: {conv_err}")
+                    continue
                 month = int(slot.get_attribute("data-month")) + 1
                 year = int(slot.get_attribute("data-year"))
                 slot_date = datetime(year, month, day)
                 if today <= slot_date <= next_30_days:
                     sorted_slots.append((slot_date, slot))
 
-
-            #if no slots found break the loop and try again, if 403 happens, just quit the driver and start again
             if not sorted_slots:
                 counter += 1
-                print("Not a single slot in sorted_slots. Skipping booking and retrying...")
-                print(f"Counter is now: {counter}")
+                print("No valid slot found. Skipping booking and retrying...")
+                print(f"Counter: {counter}")
                 if counter >= THRESHOLD:
                     try:
                         human_delay()
-                        # Perform navigation: click "Visa Application Home" link and call schedule_butt()
                         visa_home_link = wait.until(EC.element_to_be_clickable(
                             (By.XPATH, '//a[@title="Visa Application Home"]')
                         ))
-                        actions.move_to_element(visa_home_link)
-                        visa_home_link.click()
+                        safe_click(driver, visa_home_link)
                         print("Clicked Visa Application Home.")
-                        
-                        schedule_butt()  # Call function to go back to the appointment page
+                        schedule_butt()
                         print("Navigation complete. Resetting counter.")
                     except Exception as nav_err:
-                        print(f"Failed to navigate to Visa Application Home: {nav_err}")
+                        print(f"Failed to navigate home: {nav_err}")
                     counter = 0
                 random_delay()
-                continue  # Continue to the next loop iteration
+                continue
 
-            # If slots were found, reset counter (since at least one slot was available)
-            counter = 0
-               
+            else:
+                sorted_slots.sort(key=lambda x: x[0])
+                selected_date, selected_slot = sorted_slots[0]
+                print(f"Attempting to click first available slot: {selected_date.strftime('%d-%m-%Y')}")
+                slot_link = selected_slot.find_element(By.TAG_NAME, "a")
+                wait.until(EC.element_to_be_clickable(slot_link))
+                safe_click(driver, slot_link)
 
-            # Find earliest valid slot
-            sorted_slots.sort(key=lambda x: x[0])
-            #earliest_date, earliest_slot = sorted_slots[0]
-    
-            for slot_index, (slot_date, slot) in enumerate(sorted_slots[:3]):  # Try first 3 slots
-                try:
-                    print(f"Attempting to click slot {slot_index+1}/{min(3, len(sorted_slots))}: {slot_date.strftime('%d-%m-%Y')}")
-                    
-                    # Scroll to ensure slot is in view
-                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", slot)
-                    
-                    
-                    # Find the link within the slot and click it
-                    slot_link = slot.find_element(By.TAG_NAME, "a")
-                    
-                    # Try multiple click methods
-                    try:
-                        # Method 1: Regular click
-                        print("Trying direct click...")
-                        slot_link.click()
-                    except Exception as click_err:
-                        print(f"Direct click failed: {click_err}")
-                        try:
-                            # Method 2: ActionChains click
-                            print("Trying ActionChains click...")
-                            actions.move_to_element(slot_link).click().perform()
-                        except Exception as action_err:
-                            print(f"ActionChains click failed: {action_err}")
-                            # Method 3: JavaScript click
-                            print("Trying JavaScript click...")
-                            driver.execute_script("arguments[0].click();", slot_link)
+                wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@type='radio' and @name='schedule-entries' and @onclick='onSelectScheduleEntry(this)']")))
+                print("Found appointment times and clicking on it now")
 
-
-                    #looking for appointment times
-                    time_slots = wait.until(EC.visibility_of_all_elements_located(
-                        (By.XPATH, "//input[@type='radio' and @name='schedule-entries']")
-                    ))            
-                    print(f"Found {len(time_slots)} appointment time slots.")
-                    for idx, slot in enumerate(time_slots):
-                    
-                        try:
-                            try:
-                                slot.click()
-                            except Exception:
-                                driver.execute_script("arguments[0].click();", slot)
-       
-                            # Click submit button
-                            submit_button = wait.until(EC.element_to_be_clickable((By.ID, "submitbtn")))
-                            submit_button.click()
-                            print("Submitted appointment selection. Waiting for response...")
-                        
-                            # Wait briefly to see if the error alert appears
-                            try:
-                                WebDriverWait(driver, 15).until(
-                                    EC.visibility_of_element_located(
-                                        (By.XPATH, "//div[contains(@class, 'alert-danger') and contains(text(), 'no longer available')]")
-                                    )
-                                )
-                                print("Alert received: Appointment time not available, trying next slot...")
-                                continue
-
-                            except TimeoutException:
-                                # If no alert is found within 5 seconds, assume the booking is accepted
-                                print("Time slot accepted!")
-                                message = "appointment booked"
-                                send_alert(message)
-                                input("Press Enter once you've completed the manual steps...")
-                                return  # Exit function after successful booking
-                                            
-                        except Exception as e:
-                            print(f"Error trying slot {idx+1}: {e}")
-                            continue  # Move on to the next slot in case of an error                       
-                                                
-                except Exception as e:
+                radio_xpath = "//input[@type='radio' and @name='schedule-entries' and @onclick='onSelectScheduleEntry(this)']"
+                time_slots = driver.find_elements(By.XPATH, radio_xpath)
+                if not time_slots:
+                    print("No appointment radio buttons found after selecting date.")
                     continue
-                                    
-      
-                    
+
+                best_slot = max(time_slots, key=lambda el: int(el.get_attribute("data-slots") or 0))
+                safe_click(driver, best_slot)
+                print("clicked on the best available slot")
+
+                time.sleep(1)
+                submit_button = wait.until(EC.element_to_be_clickable((By.ID, "submitbtn")))
+                safe_click(driver, submit_button)
+                print("Submitted appointment selection. Waiting for response...")
+                
+                print("Waiting 5 seconds to monitor post-submit behavior...")
+                time.sleep(5)
+
+                # Check URL change
+                current_url = driver.current_url
+                print(f"Current URL after submit: {current_url}")
+
+                # Capture any alerts (silent or blocking)
+                try:
+                    alert = driver.switch_to.alert
+                    print(f"⚠️ JS Alert appeared: {alert.text}")
+                    alert.accept()
+                except:
+                    print("No blocking alert present.")
+
+                # Print page source or key content block
+                print("🔍 Page snapshot:")
+                print(driver.page_source[:1000])  # Trim to avoid flooding
+                
+                """
+                try:
+                    WebDriverWait(driver, 15).until(
+                        EC.visibility_of_element_located(
+                            (By.XPATH, "//div[contains(@class, 'alert-danger') and contains(text(), 'no longer available')]")
+                        )
+                    )
+                    print("Alert received: Appointment time not available, will retry...")
+                    send_alert("Appointment time not available.")
+                    continue
+                except TimeoutException:
+                    print("Time slot accepted!")
+                    send_alert("Appointment booked!")
+                    input("Press Enter once you've completed any required manual steps...")
+                    return
+
+                """
+       
+
         except Exception as e:
-            error_msg = str(e)
-            print(f"Slot check failed: {error_msg}")
-            human_delay()
-
-            # Perform navigation: click "Visa Application Home" link and call schedule_butt()
-            try:
-                visa_home_link = WebDriverWait(driver, 20).until(EC.element_to_be_clickable(
-                (By.XPATH, '//a[@title="Visa Application Home"]')
-                ))
-                actions.move_to_element(visa_home_link)
-                visa_home_link.click()
-                print("Clicked Visa Application Home.")
-
-            except Exception as e: 
-                print(f"something is wrong {e}")
-                driver.quit()
-                main()
+            print(f"Slot check failed: {e}")
+            time.sleep(5)
+            input("Something went wrong ")
             
-            try:
-        
-                schedule_link = WebDriverWait(driver, 20).until(
-                EC.element_to_be_clickable((By.ID, "reschedule_appointment")) #Replace with "continue_application" if new application
-                )
-                human_delay()
-                safe_click(driver, schedule_link)
-                print("Schedule Appointment link clicked successfully.")
-                counter = 0
-                random_delay()
-                continue  # Continue to the next loop iteration
 
-                    
-    
-            except Exception as e:
-                if e: 
-                    print(f"Unable to find function: {e}")
-                    driver.quit()
-                    main()
             
         
 
 
 def main():
-
     global driver, actions
 
     ua = UserAgent()
     randome_user_agent = ua.random
     print("random user agent used: ", randome_user_agent)
 
-
-    
-
-    # Generate a unique profile id using uuid4
     profile_id = uuid.uuid4().hex
     profile_dir = os.path.abspath(f"./profiles/profile_{profile_id}")
-
-    # Create the directory if it doesn't exist
     os.makedirs(profile_dir, exist_ok=True)
 
-    options = uc.ChromeOptions()
-    options.add_argument(f"user-agent: {randome_user_agent}")  # Random user agent
-    options.add_argument(f"--user-data-dir={profile_dir}")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("--disable-popup-blocking")
-    options.add_argument("--disable-infobars")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-extensions")
-    options.add_argument("--ignore-certificate-errors")
-    options.add_argument("--allow-running-insecure-content")
-    #options.add_argument("--disable-gpu")
-    options.add_argument("--disable-cache")
-    options.add_argument("--disk-cache-size=0")
-    options.add_argument("--allow-running-insecure-content")
-    #options.add_argument("--disable-site-isolation-trials")
-    #options.add_argument("--disable-features=IsolateOrigins,site-per-process")
-    options.add_argument("--use-gl=desktop")
-    options.add_argument("--remote-debugging-port=9222")  
-    #options.add_argument("--disable-webrtc-encryption")  
 
 
-    # Initialize the browser
-    driver = uc.Chrome(user_multi_procs=True, options=options)
+    driver = Driver(
+        browser="chrome",
+        uc=True,
+        user_data_dir=profile_dir,
+        incognito=True,
+        headless=False,
+        agent=randome_user_agent,
+    )
+
+    # Stealth patches
+    driver.execute_cdp_cmd("Network.setCacheDisabled", {"cacheDisabled": True})
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": """
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-                    Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
-                    window.chrome = undefined;
-                    delete navigator.__proto__.webdriver;
-                """
-            })
+        "source": """
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+            Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
+            window.chrome = undefined;
+            delete navigator.__proto__.webdriver;
+        """
+    })
+
     actions = ActionChains(driver)
-        
+
     start_time = datetime.now()
     try:
         print("Script started")
-        
-        """Main function to control execution flow"""
         if user_login():
-            message = ("script started")
+            message = "script started"
             send_alert(message)
             print("Login successful. Proceeding to security questions...")
             if sec_questions():
                 print("Security questions completed. Proceeding to schedule...")
                 if schedule_butt():
-                    print("Schedule Button steps completed !")
+                    print("Schedule Button steps completed!")
                     if check_slots():
                         print("Location selected successfully!")
-                    else: 
+                    else:
                         print("Failed at location selection step. Process halted.")
                 else:
                     print("Failed at scheduling step. Process halted.")
@@ -635,6 +551,8 @@ def main():
         end_time = datetime.now()
         elapsed_time = end_time - start_time
         print(f"Script finished. Total execution time: {elapsed_time}")
+
+
         
 
 

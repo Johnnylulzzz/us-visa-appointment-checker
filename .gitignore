@@ -6,4 +6,5 @@ capt*
 .gitignore
 somedivs.txt
 botvenv/
-
+wireshark*
+downloaded_files/
